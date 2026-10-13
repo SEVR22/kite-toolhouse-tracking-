@@ -1,0 +1,17 @@
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+*.log
+
+# Local configuration and credentials. Commit only the placeholder example.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+.vercel/
