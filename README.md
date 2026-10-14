@@ -41,6 +41,27 @@ The browser polls `GET /api/stations/station-01/state` every 1.5 seconds while v
 
 The tool labels are categories, not verified brand or SKU identifications. The drawer layout and colors are placeholders from the spec. The source spreadsheet reportedly reuses one Tactix URL for the C-clamp and pliers; verify that reference separately.
 
+## Live backend: AI-tool-detection
+
+The live backend is `server.py` in the AI-tool-detection repo. It runs the YOLO model on frames
+from a phone camera at the station. It serves `GET /stations/station-01/state` in the
+`StationState` shape above, and it holds each scan result itself. It sends canonical `toolId`s,
+so `MODEL_CLASS_ALIASES` can stay empty. Each detection's `id` is that tool's fixed UUID.
+The model's `boxcutter` class has no drawer here, so the backend does not send it.
+
+When the website runs on the same VM as the backend:
+
+```bash
+# .env.local
+STATION_DATA_SOURCE=remote
+STATION_BACKEND_URL=http://127.0.0.1:8000
+STATION_BACKEND_TOKEN=<STATION_TOKEN from AI-tool-detection/.env>
+```
+
+If the website is deployed somewhere else, set `STATION_BACKEND_URL` to the backend's public HTTPS URL instead.
+The test `accepts the state served by the AI-tool-detection server` in `lib/station-data.test.ts`
+pins the backend's response shape.
+
 ## Main files
 
 - `app/station/[stationId]/page.tsx` — public station route

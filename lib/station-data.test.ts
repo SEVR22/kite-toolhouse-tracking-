@@ -60,4 +60,23 @@ describe('station contract and display states', () => {
     expect(() => parseRemoteState({ ...raw, stationId: 'other' }, 'station-01')).toThrow();
     expect(() => parseRemoteState({ ...raw, detections: [{ toolId: 'not-confirmed' }] }, 'station-01')).toThrow();
   });
+
+  it('accepts the state served by the AI-tool-detection server', () => {
+    // Shape produced by server.py in AI-tool-detection (GET /stations/station-01/state).
+    const raw = {
+      stationId: 'station-01', mode: 'held', source: 'live',
+      scanId: '291dd93f-7102-4d96-a136-ef91e1d723dc',
+      updatedAt: '2026-10-14T16:53:40.123456Z', lastScanAt: '2026-10-14T16:53:38.654321Z',
+      connectivity: { camera: 'online', inference: 'online', ledController: 'unknown' },
+      detections: [
+        { id: '3f8a1c52-6d0e-4b7a-9c21-0a5e7d4b9e11', toolId: 'claw-hammer', confidence: 0.975 },
+        { id: 'b8e4f2a5-9c61-4d37-a0b8-4d2f7e3c1a99', toolId: 'hammer-drill', confidence: 0.88 },
+      ],
+      message: null,
+    };
+    const parsed = parseRemoteState(raw, 'station-01');
+    expect(parsed.activeDrawerIds).toEqual(['T01', 'T07']);
+    expect(parsed.detections[0].id).toBe('3f8a1c52-6d0e-4b7a-9c21-0a5e7d4b9e11');
+    expect(getDisplayStatus(parsed, Date.parse('2026-10-14T16:53:41Z'), 15000)).toBe('results');
+  });
 });
