@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import Link from 'next/link';
 import { TOOL_CATALOG, groupDetections } from '@/lib/catalog';
 import { getDisplayStatus } from '@/lib/display-status';
 import { fetchStationState } from '@/lib/station-api';
+import { canFinalize, finalizeChecklist, getChecklistItems, getScanKey, readChecklistSnapshot, writeChecklistSnapshot } from '@/lib/storage-checklist';
 import type { DemoScenario } from '@/lib/demo-state';
 import type { ConnectionState, DisplayStatus, StationState } from '@/lib/types';
 
@@ -110,12 +111,45 @@ function useStationState(stationId: string, scenario?: DemoScenario) {
 }
 
 export function StationDashboard({ stationId, scenario, showSimulatorLink = false }: { stationId: string; scenario?: DemoScenario; showSimulatorLink?: boolean }) {
-  const { state, status, requestFailed } = useStationState(stationId, scenario);
-  const content = copy[status];
+  const { state, status: stationStatus, requestFailed } = useStationState(stationId, scenario);
+  const [checklist, setChecklist] = useState(() => readChecklistSnapshot(stationId));
+  const finalizedRef = useRef<string | null>(null);
+  const scanKey = getScanKey(state);
+  const items = getChecklistItems(state?.detections ?? []);
+  const finalized = Boolean(scanKey && checklist.completedScanKeys.includes(scanKey));
+  const status = finalized ? 'ready' : stationStatus;
+  const content = finalized ? {
+    ...copy.ready,
+    description: 'Proceso finalizado en este navegador. Espera un nuevo escaneo para la siguiente devolución.',
+    instruction: 'La estación física y sus luces se controlan por separado.',
+  } : copy[status];
   const isDemo = state?.source === 'mock';
   const active = new Set(status === 'results' || status === 'stale' ? state?.activeDrawerIds : []);
-  const groups = groupDetections(state?.detections ?? []);
+  const groups = groupDetections(finalized ? [] : state?.detections ?? []);
   const resultsVisible = (status === 'results' || status === 'stale') && groups.length > 0;
+  const checked = checklist.scanKey === scanKey ? checklist.checked : [];
+  const checkedCount = items.filter(({ key }) => checked.includes(key)).length;
+  const finalizationEnabled = resultsVisible && canFinalize(scanKey, items, checklist);
+
+  function toggleChecked(key: string) {
+    if (!scanKey || finalized || !items.some((item) => item.key === key)) return;
+    const current = checklist.scanKey === scanKey ? checklist.checked : [];
+    const next = {
+      ...checklist,
+      scanKey,
+      checked: current.includes(key) ? current.filter((item) => item !== key) : [...current, key],
+    };
+    setChecklist(next);
+    writeChecklistSnapshot(stationId, next);
+  }
+
+  function finalize() {
+    if (!finalizationEnabled || !scanKey || finalizedRef.current === scanKey) return;
+    finalizedRef.current = scanKey;
+    const next = finalizeChecklist(scanKey, items, checklist);
+    setChecklist(next);
+    writeChecklistSnapshot(stationId, next);
+  }
 
   return (
     <div className="site-shell">
@@ -145,26 +179,28 @@ export function StationDashboard({ stationId, scenario, showSimulatorLink = fals
                 <div className="detection-list">
                   {groups.map(({ tool, count, confidence }) => (
                     <div className="detection-row" key={tool.id} style={{ '--drawer-color': tool.color } as CSSProperties}>
-                      <div className="detection-color" aria-hidden="true" /><div className="detection-text"><strong>{tool.label}</strong><span>{count > 1 ? `${count} objetos · ` : ''}Ubicación asignada</span></div><div className="drawer-badge"><small>CAJÓN</small><strong>{tool.drawerId}</strong></div>
+                      <div className="detection-row-main"><div className="detection-color" aria-hidden="true" /><div className="detection-text"><strong>{tool.label}</strong><span>{count > 1 ? `${count} objetos · ` : ''}Ubicación asignada</span></div><div className="drawer-badge"><small>CAJÓN</small><strong>{tool.drawerId}</strong></div></div>
+                      {scanKey && <div className="detection-checks">{items.filter((item) => item.toolId === tool.id).map((item, index) => <label className="storage-check" key={item.key}><input type="checkbox" aria-label={`Confirmar ${tool.label}${count > 1 ? ` ${index + 1} de ${count}` : ''} en ${tool.drawerId}`} checked={checked.includes(item.key)} onChange={() => toggleChecked(item.key)} /><span>{count > 1 ? `Herramienta ${index + 1} guardada` : 'Herramienta guardada'}</span></label>)}</div>}
                       {confidence !== undefined && <span className="sr-only">Confianza: {Math.round(confidence * 100)}%</span>}
                     </div>
                   ))}
+                  <div className="storage-finalize"><div><strong>{checkedCount} de {items.length} {items.length === 1 ? 'herramienta guardada' : 'herramientas guardadas'}</strong><span>{scanKey ? 'Marca cada casilla después de colocar la herramienta en su compartimento.' : 'La estación no proporcionó un identificador estable para este escaneo.'}</span></div><button type="button" onClick={finalize} disabled={!finalizationEnabled}>Finalizar proceso de guardado</button></div>
                   <details className="details-block"><summary>Detalles del análisis</summary><div className="details-content"><div><span>Escaneo</span><strong>{state?.scanId ?? '—'}</strong></div><div><span>Realizado a las</span><strong>{formatTime(state?.lastScanAt)}</strong></div><div><span>Detecciones</span><strong>{state?.detections.length ?? 0}</strong></div><div><span>Confianza máxima</span><strong>{Math.max(...groups.map(({ confidence }) => confidence ?? 0)) ? `${Math.round(Math.max(...groups.map(({ confidence }) => confidence ?? 0)) * 100)}%` : '—'}</strong></div></div></details>
                 </div>
               ) : (
-                <div className="empty-results"><div className="empty-visual" aria-hidden="true">▦</div><strong>{status === 'empty' ? 'Sin herramientas reconocidas' : 'Aún no hay resultados para mostrar'}</strong><p>{status === 'empty' ? 'El cajón se iluminará cuando la estación reconozca una herramienta.' : 'Las herramientas detectadas aparecerán aquí al terminar el análisis.'}</p></div>
+                <div className="empty-results"><div className="empty-visual" aria-hidden="true">▦</div><strong>{finalized ? 'Guardado finalizado' : status === 'empty' ? 'Sin herramientas reconocidas' : 'Aún no hay resultados para mostrar'}</strong><p>{finalized ? 'La lista se ha limpiado en este navegador. Espera un nuevo escaneo de la estación.' : status === 'empty' ? 'El cajón se iluminará cuando la estación reconozca una herramienta.' : 'Las herramientas detectadas aparecerán aquí al terminar el análisis.'}</p></div>
               )}
             </div>
           </section>
 
-          <section className="panel rack-panel" aria-labelledby="rack-title"><div className="rack-heading"><div><span className="section-index">03 / MAPA DE ALMACENAMIENTO</span><h2 id="rack-title">Estación de cajones</h2><p>9 ubicaciones · matriz 3 × 3</p></div><div className="rack-legend"><span className="legend-light" /><span>{status === 'stale' ? 'ÚLTIMO RESULTADO' : 'CAJÓN ACTIVO'}</span></div></div>
+          <section className="panel rack-panel" aria-labelledby="rack-title"><div className="rack-heading"><div><span className="section-index">03 / MAPA DE ALMACENAMIENTO</span><h2 id="rack-title">Estación de cajones</h2><p>9 ubicaciones asignadas · organizador de 2 columnas</p></div><div className="rack-legend"><span className="legend-light" /><span>{status === 'stale' ? 'ÚLTIMO RESULTADO' : 'CAJÓN ACTIVO'}</span></div></div>
             <div className="rack-frame"><div className="rack-frame-top"><span>TOOLLIGHTHOUSE / RACK 01</span><span>◈ ◈ ◈</span></div><div className="drawer-grid">
               {TOOL_CATALOG.map((tool, index) => {
                 const highlighted = active.has(tool.drawerId);
-                return <div key={tool.id} className={`drawer ${highlighted ? 'drawer--active' : ''} ${status === 'stale' && highlighted ? 'drawer--stale' : ''}`} style={{ '--drawer-color': tool.color } as CSSProperties} aria-label={`${tool.drawerId}, ${tool.label}, ${highlighted ? status === 'stale' ? 'último resultado conocido' : 'activo' : 'inactivo'}`}><div className="drawer-top"><span>{tool.drawerId}</span><span className="drawer-led" /></div><div className="drawer-handle" aria-hidden="true" /><strong>{tool.shortLabel}</strong><small>{highlighted ? status === 'stale' ? 'SIN CONFIRMAR' : 'ACTIVO' : `POSICIÓN ${String(index + 1).padStart(2, '0')}`}</small></div>;
+                return <div key={tool.id} className={`drawer ${highlighted ? 'drawer--active' : ''} ${status === 'stale' && highlighted ? 'drawer--stale' : ''}`} style={{ '--drawer-color': tool.color } as CSSProperties} aria-label={`${tool.drawerId}, ${tool.label}, ${highlighted ? status === 'stale' ? 'último resultado conocido' : 'activo' : 'inactivo'}`}><div className="drawer-top"><span>{tool.drawerId}</span><span className="drawer-led" /></div><div className="drawer-handle" aria-hidden="true" /><strong>{tool.shortLabel}</strong><small>{highlighted ? status === 'stale' ? 'SIN CONFIRMAR' : 'ACTIVO' : `REFERENCIA ${String(index + 1).padStart(2, '0')}`}</small></div>;
               })}
             </div><div className="rack-frame-bottom"><span>DISPOSICIÓN PROVISIONAL</span><span>01 — 09</span></div></div>
-            <p className="rack-footnote"><span aria-hidden="true">ⓘ</span> Los números y colores son provisionales hasta confirmar el montaje físico.</p>
+            <p className="rack-footnote"><span aria-hidden="true">ⓘ</span> Vista de referencia: 2 columnas y 5 filas, con los dos espacios superiores derechos unidos. Confirma qué herramienta corresponde a cada posición física.</p>
           </section>
         </div>
 

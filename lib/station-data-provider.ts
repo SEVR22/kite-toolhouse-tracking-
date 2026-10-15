@@ -75,12 +75,16 @@ function unavailableState(stationId: string): StationState {
 }
 
 export async function getStationState(stationId: string, scenario?: DemoScenario): Promise<StationState> {
-  if (process.env.STATION_DATA_SOURCE !== 'remote') return createMockState(stationId, scenario);
+  if (process.env.NODE_ENV === 'development' && process.env.STATION_DATA_SOURCE === 'mock') {
+    return createMockState(stationId, scenario);
+  }
+  if (process.env.STATION_DATA_SOURCE !== 'remote') return unavailableState(stationId);
   const baseUrl = process.env.STATION_BACKEND_URL;
   if (!baseUrl) return unavailableState(stationId);
 
   try {
     const url = new URL(`stations/${encodeURIComponent(stationId)}/state`, `${baseUrl.replace(/\/$/, '')}/`);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return unavailableState(stationId);
     const headers: HeadersInit = { Accept: 'application/json' };
     if (process.env.STATION_BACKEND_TOKEN) headers.Authorization = `Bearer ${process.env.STATION_BACKEND_TOKEN}`;
     const response = await fetch(url, { headers, cache: 'no-store', signal: AbortSignal.timeout(5000) });
