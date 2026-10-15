@@ -1,8 +1,56 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { TOOL_CATALOG, canonicalToolIdForClass, deriveActiveDrawerIds, groupDetections } from './catalog';
 import { createMockState } from './demo-state';
 import { getDisplayStatus } from './display-status';
-import { parseRemoteState } from './station-data-provider';
+import { getStationState, parseRemoteState } from './station-data-provider';
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe('station data source gate', () => {
+  it('allows simulated detections only in explicitly configured development mode', async () => {
+    vi.stubEnv('STATION_DATA_SOURCE', 'mock');
+    vi.stubEnv('NODE_ENV', 'development');
+    const demo = await getStationState('station-01', 'held-three');
+    expect(demo.source).toBe('mock');
+    expect(demo.detections).toHaveLength(3);
+
+    vi.stubEnv('NODE_ENV', 'production');
+    const production = await getStationState('station-01', 'held-three');
+    expect(production).toMatchObject({ mode: 'offline', source: 'live', detections: [], activeDrawerIds: [] });
+  });
+
+  it('returns offline for missing or invalid remote configuration', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('STATION_DATA_SOURCE', 'remote');
+    vi.stubEnv('STATION_BACKEND_URL', '');
+    expect(await getStationState('station-01')).toMatchObject({ mode: 'offline', detections: [] });
+
+    vi.stubEnv('STATION_BACKEND_URL', 'ftp://backend.example.test');
+    expect(await getStationState('station-01')).toMatchObject({ mode: 'offline', detections: [] });
+  });
+
+  it('requests the existing FastAPI endpoint with a server-side bearer token', async () => {
+    vi.stubEnv('NODE_ENV', 'production');
+    vi.stubEnv('STATION_DATA_SOURCE', 'remote');
+    vi.stubEnv('STATION_BACKEND_URL', 'https://backend.example.test');
+    vi.stubEnv('STATION_BACKEND_TOKEN', 'test-token');
+    const raw = createMockState('station-01', 'held-one');
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify(raw), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const state = await getStationState('station-01');
+    expect(fetchMock).toHaveBeenCalledWith(
+      new URL('https://backend.example.test/stations/station-01/state'),
+      expect.objectContaining({ headers: { Accept: 'application/json', Authorization: 'Bearer test-token' }, cache: 'no-store' }),
+    );
+    expect(state.source).toBe('live');
+    expect(state.detections).toHaveLength(1);
+  });
+});
 
 describe('catalog and drawer mapping', () => {
   it('keeps nine unique provisional drawers and accepts only known canonical classes', () => {

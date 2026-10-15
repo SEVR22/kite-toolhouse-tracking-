@@ -200,7 +200,7 @@ export function StationDashboard({ stationId, scenario, showSimulatorLink = fals
                 return <div key={tool.id} className={`drawer ${highlighted ? 'drawer--active' : ''} ${status === 'stale' && highlighted ? 'drawer--stale' : ''}`} style={{ '--drawer-color': tool.color } as CSSProperties} aria-label={`${tool.drawerId}, ${tool.label}, ${highlighted ? status === 'stale' ? 'último resultado conocido' : 'activo' : 'inactivo'}`}><div className="drawer-top"><span>{tool.drawerId}</span><span className="drawer-led" /></div><div className="drawer-handle" aria-hidden="true" /><strong>{tool.shortLabel}</strong><small>{highlighted ? status === 'stale' ? 'SIN CONFIRMAR' : 'ACTIVO' : `REFERENCIA ${String(index + 1).padStart(2, '0')}`}</small></div>;
               })}
             </div><div className="rack-frame-bottom"><span>DISPOSICIÓN PROVISIONAL</span><span>01 — 09</span></div></div>
-            <p className="rack-footnote"><span aria-hidden="true">ⓘ</span> Vista de referencia: el organizador tiene 2 columnas y 5 filas. Confirma la posición del separador retirado antes de usar este orden como mapa físico.</p>
+            <p className="rack-footnote"><span aria-hidden="true">ⓘ</span> Vista de referencia: 2 columnas y 5 filas, con los dos espacios superiores derechos unidos. Confirma qué herramienta corresponde a cada posición física.</p>
           </section>
         </div>
 
