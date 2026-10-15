@@ -45,19 +45,20 @@ The physical organizer is two columns by five rows with one permitted divider re
 
 ## Presentation deployment and rollback
 
-The working version is preserved as `backup/pre-presentation-2026-10-15` at `d784dce`; teammate commit `828f974` is included on the presentation feature branch. After reviewing this branch, deploy only with the team's explicit approval and the host's normal restart procedure:
+The original website is preserved as `backup/pre-presentation-2026-10-15` at `d784dce`; teammate commit `828f974` is included on the presentation feature branch. After the team approves and merges the draft pull request, deploy from `main` using the host's normal restart procedure:
 
 ```bash
+git switch main
+git rev-parse HEAD  # Record this SHA for rollback before updating.
 git fetch origin
-git switch feature/presentation-checklist
 git pull --ff-only
 npm ci
 # Set server-side variables in .env.local for live mode; keep tokens out of Git.
 npm run build
-npm run start
+# Restart the existing web service, or run npm run start if it is started manually.
 ```
 
-Check `/station/station-01`: all boxes start empty, the button enables only after all are checked, finalization clears the page, and a new scan creates a new list. Confirm live detections and LEDs separately. To roll back the site source, stop its process, check out the previously deployed commit (or `backup/pre-presentation-2026-10-15` for the original website), run `npm ci && npm run build`, and restart the web process. Rolling back the website does not change backend or hardware state.
+Check `/station/station-01`: all boxes start empty, the button enables only after all are checked, finalization clears the page, and a new scan creates a new list. Confirm live detections and LEDs separately. To roll back the site without changing shared Git history, stop its process, run `git switch --detach <previous-deployed-SHA>`, then `npm ci && npm run build`, and restart the web process. Rolling back the website does not change backend or hardware state.
 
 ## Connect the cloud backend
 
